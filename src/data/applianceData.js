@@ -66,5 +66,5 @@ export const getApplianceByName = (name) => {
 
 // Helper function to get default electricity rate (Philippine rate in Peso/kWh)
 export const getDefaultElectricityRate = () => {
-  return 10.50; // Default Philippine electricity rate in ₱/kWh (example value)
+  return 11; // Default Philippine electricity rate in ₱/kWh (example value)
 }; 

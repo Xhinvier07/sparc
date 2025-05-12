@@ -1,18 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { FaBolt, FaClock, FaCalendarAlt, FaDollarSign } from 'react-icons/fa';
+import { FaBolt, FaClock, FaCalendarAlt, FaDollarSign, FaInfoCircle } from 'react-icons/fa';
 
 import Card from './ui/Card';
 import Input from './ui/Input';
 import Select from './ui/Select';
 import Button from './ui/Button';
 
-import { applianceData, getAllAppliances, getDefaultElectricityRate } from '../data/applianceData';
+import { 
+  fetchApplianceData, 
+  getAllAppliances, 
+  getDefaultElectricityRate,
+  fetchElectricityRate
+} from '../services/applianceService';
 import { calculateEnergyConsumption, calculateCost } from '../utils/calculationUtils';
 
 const SingleApplianceCalculator = () => {
   const [results, setResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [applianceData, setApplianceData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [rateInfo, setRateInfo] = useState(null);
+  const [showRateTooltip, setShowRateTooltip] = useState(false);
   
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm({
     defaultValues: {
@@ -20,11 +29,34 @@ const SingleApplianceCalculator = () => {
       wattage: '',
       hoursPerDay: 8,
       daysPerWeek: 7,
-      rate: getDefaultElectricityRate(),
+      rate: '',
     }
   });
   
   const selectedAppliance = watch('appliance');
+  
+  // Fetch appliance data and electricity rate on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch appliance data
+        const data = await fetchApplianceData();
+        setApplianceData(data);
+        
+        // Fetch electricity rate data
+        const rateData = await fetchElectricityRate();
+        setRateInfo(rateData);
+        setValue('rate', rateData.rate);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [setValue]);
   
   // Format appliance data for the select dropdown
   const selectOptions = applianceData.map(category => ({
@@ -35,17 +67,48 @@ const SingleApplianceCalculator = () => {
     }))
   }));
   
+  // Add custom option at the top
+  const customOption = {
+    category: 'Custom',
+    options: [
+      {
+        value: 'custom',
+        label: 'Custom Appliance'
+      }
+    ]
+  };
+  
+  const finalSelectOptions = [customOption, ...selectOptions];
+  
   // Update wattage when appliance selection changes
   useEffect(() => {
-    if (selectedAppliance) {
-      const allAppliances = getAllAppliances();
-      const selected = allAppliances.find(app => app.name === selectedAppliance);
-      
-      if (selected) {
-        setValue('wattage', selected.defaultWatts);
+    const updateApplianceWattage = async () => {
+      if (selectedAppliance && selectedAppliance !== 'custom') {
+        const allAppliances = await getAllAppliances();
+        const selected = allAppliances.find(app => app.name === selectedAppliance);
+        
+        if (selected) {
+          setValue('wattage', selected.defaultWatts);
+        }
+      } else if (selectedAppliance === 'custom') {
+        // Handle custom appliance selection
+        setTimeout(() => {
+          const customName = prompt('Enter custom appliance name:', 'Custom Appliance');
+          if (customName) {
+            setValue('appliance', customName);
+            
+            // Set a default wattage for custom appliances if not already set
+            const currentWattage = watch('wattage');
+            if (!currentWattage) {
+              setValue('wattage', 100); // Default wattage for custom appliance
+            }
+          }
+        }, 100);
       }
-    }
-  }, [selectedAppliance, setValue]);
+    };
+    
+    updateApplianceWattage();
+  }, [selectedAppliance, setValue, watch]);
   
   const onSubmit = (data) => {
     setIsCalculating(true);
@@ -74,110 +137,173 @@ const SingleApplianceCalculator = () => {
     }, 800);
   };
   
+  // Toggle rate tooltip visibility
+  const toggleRateTooltip = () => {
+    setShowRateTooltip(!showRateTooltip);
+  };
+  
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
       {/* Calculator Form */}
       <Card title="Single Appliance Calculator">
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <Select
-            label="Select Appliance"
-            id="appliance"
-            name="appliance"
-            placeholder="Select an appliance"
-            options={selectOptions}
-            groupByCategory={true}
-            {...register('appliance')}
-            onChange={(e) => setValue('appliance', e.target.value)}
-            value={watch('appliance')}
-          />
-          
-          <Input
-            label="Wattage"
-            id="wattage"
-            name="wattage"
-            type="number"
-            placeholder="Enter wattage"
-            required
-            endAdornment="W"
-            {...register('wattage', { 
-              required: 'Wattage is required',
-              min: { value: 1, message: 'Wattage must be at least 1W' },
-              max: { value: 10000, message: 'Wattage must be less than 10000W' }
-            })}
-            error={errors.wattage?.message}
-            onChange={(e) => setValue('wattage', e.target.value)}
-            value={watch('wattage')}
-          />
-          
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Hours Per Day"
-              id="hoursPerDay"
-              name="hoursPerDay"
-              type="number"
-              min={0.1}
-              max={24}
-              step={0.1}
-              required
-              endAdornment={<FaClock />}
-              {...register('hoursPerDay', { 
-                required: 'Hours per day is required',
-                min: { value: 0.1, message: 'Minimum is 0.1 hours' },
-                max: { value: 24, message: 'Maximum is 24 hours' }
-              })}
-              error={errors.hoursPerDay?.message}
-              onChange={(e) => setValue('hoursPerDay', e.target.value)}
-              value={watch('hoursPerDay')}
+        {isLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <Select
+              label="Select Appliance"
+              id="appliance"
+              name="appliance"
+              placeholder="Select an appliance"
+              options={finalSelectOptions}
+              groupByCategory={true}
+              {...register('appliance')}
+              onChange={(e) => setValue('appliance', e.target.value)}
+              value={watch('appliance')}
             />
             
+            {/* Show custom name input if it's a custom appliance */}
+            {watch('appliance') && 
+             !applianceData.flatMap(cat => cat.appliances).some(app => app.name === watch('appliance')) && 
+             watch('appliance') !== 'custom' && (
+              <div className="mt-4 p-3 bg-accent bg-opacity-10 rounded-lg">
+                <p className="text-sm font-medium mb-2 text-primary">Custom Appliance Name</p>
+                <Input
+                  id="customName"
+                  placeholder="Custom appliance name"
+                  value={watch('appliance')}
+                  onChange={(e) => setValue('appliance', e.target.value)}
+                />
+              </div>
+            )}
+            
             <Input
-              label="Days Per Week"
-              id="daysPerWeek"
-              name="daysPerWeek"
+              label="Wattage"
+              id="wattage"
+              name="wattage"
               type="number"
-              min={1}
-              max={7}
-              step={1}
+              placeholder="Enter wattage"
               required
-              endAdornment={<FaCalendarAlt />}
-              {...register('daysPerWeek', { 
-                required: 'Days per week is required',
-                min: { value: 1, message: 'Minimum is 1 day' },
-                max: { value: 7, message: 'Maximum is 7 days' }
+              endAdornment="W"
+              {...register('wattage', { 
+                required: 'Wattage is required',
+                min: { value: 1, message: 'Wattage must be at least 1W' },
+                max: { value: 10000, message: 'Wattage must be less than 10000W' }
               })}
-              error={errors.daysPerWeek?.message}
-              onChange={(e) => setValue('daysPerWeek', e.target.value)}
-              value={watch('daysPerWeek')}
+              error={errors.wattage?.message}
+              onChange={(e) => setValue('wattage', e.target.value)}
+              value={watch('wattage')}
             />
-          </div>
-          
-          <Input
-            label="Electricity Rate"
-            id="rate"
-            name="rate"
-            type="number"
-            min={0.1}
-            step={0.01}
-            required
-            endAdornment="₱/kWh"
-            {...register('rate', { 
-              required: 'Electricity rate is required',
-              min: { value: 0.1, message: 'Rate must be at least 0.1' }
-            })}
-            error={errors.rate?.message}
-            onChange={(e) => setValue('rate', e.target.value)}
-            value={watch('rate')}
-          />
-          
-          <Button 
-            type="submit" 
-            variant="primary" 
-            className="w-full mt-4"
-            disabled={isCalculating}
-          >
-            {isCalculating ? 'Calculating...' : 'Calculate'}
-          </Button>
-        </form>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Hours Per Day"
+                id="hoursPerDay"
+                name="hoursPerDay"
+                type="number"
+                min={0.1}
+                max={24}
+                step={0.1}
+                required
+                endAdornment={<FaClock />}
+                {...register('hoursPerDay', { 
+                  required: 'Hours per day is required',
+                  min: { value: 0.1, message: 'Minimum is 0.1 hours' },
+                  max: { value: 24, message: 'Maximum is 24 hours' }
+                })}
+                error={errors.hoursPerDay?.message}
+                onChange={(e) => setValue('hoursPerDay', e.target.value)}
+                value={watch('hoursPerDay')}
+              />
+              
+              <Input
+                label="Days Per Week"
+                id="daysPerWeek"
+                name="daysPerWeek"
+                type="number"
+                min={1}
+                max={7}
+                step={1}
+                required
+                endAdornment={<FaCalendarAlt />}
+                {...register('daysPerWeek', { 
+                  required: 'Days per week is required',
+                  min: { value: 1, message: 'Minimum is 1 day' },
+                  max: { value: 7, message: 'Maximum is 7 days' }
+                })}
+                error={errors.daysPerWeek?.message}
+                onChange={(e) => setValue('daysPerWeek', e.target.value)}
+                value={watch('daysPerWeek')}
+              />
+            </div>
+            
+            <div className="relative">
+              <Input
+                label={
+                  <div className="flex items-center">
+                    <span>Electricity Rate</span>
+                    <button 
+                      type="button"
+                      className="ml-2 text-primary hover:text-secondary focus:outline-none transition-colors"
+                      onClick={toggleRateTooltip}
+                      aria-label="Show electricity rate information"
+                    >
+                      <FaInfoCircle />
+                    </button>
+                  </div>
+                }
+                id="rate"
+                name="rate"
+                type="number"
+                min={0.1}
+                step={0.01}
+                required
+                endAdornment="₱/kWh"
+                {...register('rate', { 
+                  required: 'Electricity rate is required',
+                  min: { value: 0.1, message: 'Rate must be at least 0.1' }
+                })}
+                error={errors.rate?.message}
+                onChange={(e) => setValue('rate', e.target.value)}
+                value={watch('rate')}
+              />
+              
+              {/* Rate Information Tooltip */}
+              {showRateTooltip && rateInfo && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg p-4 z-10 border border-gray-200">
+                  <div className="flex justify-between">
+                    <h5 className="text-primary font-medium">Rate Information</h5>
+                    <button 
+                      type="button"
+                      className="text-gray-400 hover:text-gray-600"
+                      onClick={toggleRateTooltip}
+                      aria-label="Close rate information"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-sm mt-2">
+                    Electricity rate as of {rateInfo.month} {rateInfo.year}
+                  </p>
+                  {rateInfo.notes && (
+                    <p className="text-xs mt-1 text-gray-600">{rateInfo.notes}</p>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <Button 
+              type="submit" 
+              variant="primary" 
+              className="w-full mt-4"
+              disabled={isCalculating}
+            >
+              {isCalculating ? 'Calculating...' : 'Calculate'}
+            </Button>
+          </form>
+        )}
       </Card>
       
       {/* Results Display */}
