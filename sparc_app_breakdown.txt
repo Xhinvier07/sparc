@@ -130,3 +130,4 @@
 - Create historical tracking of energy usage
 - Add energy-saving recommendations based on usage patterns
 - Implement dark mode 
+- Create a AI chatbot about Electricity Bills and Electricity Savings
